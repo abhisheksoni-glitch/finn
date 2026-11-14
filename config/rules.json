@@ -1,0 +1,7 @@
+{
+  "volume_multiple": 2.0,
+  "volume_lookback_days": 20,
+  "price_move_pct": 4.0,
+  "alert_categories": ["results", "M&A", "management_change", "fund_raise", "credit_rating", "litigation", "pledging"],
+  "min_priority_for_alert": 70
+}
