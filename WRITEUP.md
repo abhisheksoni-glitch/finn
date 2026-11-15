@@ -18,6 +18,8 @@ Swipe right marks a card done. Swipe left mutes that kind of filing for that sto
 
 **Research (pull).** The centrepiece is "Said versus done": headline guidance from the last four earnings calls, each with the number that was actually reported, a verdict (delivered, partly, missed, walked back, too early) and a note on how the guidance drifted from call to call. Then story versus numbers, guidance on the table now, trajectory, cash conversion, balance sheet, bull and bear, and an Ask box that answers only from the company's own transcripts and annual report. Every claim carries a source chip that opens the passage it came from.
 
+**Ask (a conversation with the book).** A fourth tab where you type or speak ("what needs me today?", "anything move without news?", "how did KAYNES do against guidance?") and get a short answer with chips that open the exact filing, price chart or research it rests on. The phone sends the model only what it is already showing (ranked filings, prices, alerts, open research), so answers can't drift into outside knowledge, and citations the model invents are dropped. One cheap model call per question. With no server or no key, the common questions are answered on the phone itself, so it never shows an empty state. Answers can be read aloud.
+
 ## Key decisions and trade-offs
 
 - **Rules first, models second.** Exchange subjects are semi-structured, so ordered rules classify about 90% of filings at no cost. The model only sees the ambiguous rest, batched 20 at a time. One-liners start as the exchange's own text with boilerplate stripped; the model rewrites only the items that will actually be shown.
@@ -35,7 +37,7 @@ Swipe right marks a card done. Swipe left mutes that kind of filing for that sto
 - Sentiment scores and price targets. They would be the model's opinion dressed up as signal.
 - News and broker notes on the pull side, per the brief.
 - Login, multi-portfolio and server-side preferences. Mutes and rules live on the device for now.
-- A chat-first interface. Chat is there (Ask), but scoped to one company's documents; the default interaction is a ranked brief you can finish.
+- A chat-first interface. Chat is there, but as a second surface: the default is a ranked brief you can finish, and chat answers only from that brief and the company's own documents.
 
 ## Where I'd take it next
 

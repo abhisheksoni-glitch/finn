@@ -2,6 +2,7 @@
 
 GET  /api/research/{symbol}   build-or-cache research for any NSE symbol
 POST /api/ask                 {symbol, q} grounded Q&A over that company's docs
+POST /api/chat                {q, context, history} Ask FINN over the book the phone is showing
 POST /api/rebuild             refresh the push snapshot
 """
 import json
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 
 from . import settings
 from .build import build_snapshot
-from .engine import research, retrieval
+from .engine import copilot, research, retrieval
 from .llm import get_llm
 
 app = FastAPI(title="FINN")
@@ -92,6 +93,20 @@ def post_ask(body: Ask):
     if not r and f.exists():                             # prebuilt by the nightly job
         r = json.loads(f.read_text())
     return retrieval.ask((r or {}).get("chunks", []), body.q, llm)
+
+
+class Chat(BaseModel):
+    q: str
+    context: dict = {}
+    history: list = []
+
+
+@app.post("/api/chat")
+def post_chat(body: Chat):
+    out = copilot.chat(body.context, body.q, body.history, get_llm())
+    if out is None:
+        raise HTTPException(503, "The model is unavailable; the app answers on the phone instead.")
+    return out
 
 
 @app.post("/api/rebuild")

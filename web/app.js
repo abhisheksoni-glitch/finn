@@ -430,6 +430,165 @@ function renderWatch() {
   $$("[data-open]").forEach(r => r.onclick = () => openItem(r.dataset.open));
 }
 
+/* ---------- Ask FINN ---------- */
+/* A conversation over the book the phone is already showing. The app sends the model a
+   compact view of exactly what is on screen (ranked filings, prices, alerts, research
+   it has), and every answer comes back with citations that open the card they rest on.
+   With no server or no model, common questions are answered right here on the phone. */
+S.chat = [];
+S.listening = false;
+const SUGGEST = ["What needs me today?", "Anything move without news?", "How were this week's results?", "Summarise my book in 30 seconds"];
+
+function bookContext(q) {
+  const now = asOf(), R = S.rules;
+  const recent = S.snap.announcements.filter(a => !a.merged_into && (now - tsOf(a)) / 36e5 <= 24 * 7);
+  const rank = { top: 0, glance: 1, routine: 2 };
+  recent.sort((a, b) => rank[effectiveTier(a)] - rank[effectiveTier(b)] || b.score - a.score);
+  const filings = recent.slice(0, 40).map(a => {
+    const f = { id: a.id, symbol: a.symbol, type: a.label, tier: effectiveTier(a), when: a.ts.slice(0, 16), line: a.line };
+    if (a.reaction != null) f.stock_move_next_session_pct = a.reaction;
+    const c = a.card || {};
+    if (c.metrics) f.results = { quarter: c.quarter, vs: [c.vs_qoq, c.vs_yoy], metrics_cr: c.metrics.map(m => ({ k: m.k, v: m.v, yoy_pct: m.yoy, qoq_pct: m.qoq })), margin: c.margin || null };
+    if (c.pending) f.results = { pending: c.reason };
+    if (c.guidance && c.guidance.length) f.vs_guidance = c.guidance.map(g => `${g.verdict}: ${g.actual_label} ${g.actual} vs ${g.target} guided on the ${g.said_in}`);
+    if (c.changes) f.people = c.changes.map(p => ({ person: p.person, role: p.role, change: p.change, effective: p.effective, profile: p.profile || (p.web && p.web.bio) || null }));
+    if (a.also) f.also_filed = a.also.map(x => `${x.label}: ${x.line}`);
+    return f;
+  });
+  const holdings = S.snap.portfolio.map(h => {
+    const st = dayStats(h.series || [], R.lookback), l = st[st.length - 1] || {}, w = st[st.length - 6];
+    return { symbol: h.symbol, name: h.name, sector: h.sector, weight_pct: h.weight, close: h.last, day_pct: l.ret != null ? +l.ret.toFixed(2) : null,
+      week_pct: w && l.c ? +((l.c / w.c - 1) * 100).toFixed(2) : null, volume_x_avg: l.vmult ? +l.vmult.toFixed(2) : null, date: l.d };
+  });
+  const research = [];
+  const named = new Set((q.toUpperCase().match(/[A-Z&]{2,15}/g) || []).filter(w => S.snap.portfolio.some(h => h.symbol === w) || S.research[w]));
+  for (const sym of named) {
+    const r = S.research[sym]; if (!r || !r.analysis) continue;
+    const an = r.analysis;
+    research.push({ symbol: sym, verdict: an.verdict, guidance_now: (an.guidance_now || []).slice(0, 4),
+      promises: (an.ledger || []).slice(0, 6).map(x => ({ said_in: x.said_in, promise: x.promise, delivered: x.delivered, verdict: x.verdict })),
+      bull: (an.bull || []).map(x => x.point), bear: (an.bear || []).map(x => x.point) });
+  }
+  return { as_of: S.snap.meta.as_of, data_source: S.snap.meta.source, rules: { price_move_pct: R.price, volume_x: R.vol, lookback_days: R.lookback },
+    holdings, filings, routine_folded: recent.filter(a => effectiveTier(a) === "routine").length,
+    moved_without_news: movesNoNews(recent).map(x => ({ symbol: x.symbol, day_pct: x.ret != null ? +x.ret.toFixed(2) : null, volume_x_avg: x.vmult ? +x.vmult.toFixed(2) : null, date: x.d })),
+    research_ready: S.snap.meta.research || [], research };
+}
+
+/* answers on the phone, no model: the questions an investor asks most */
+function localAnswer(q) {
+  const t = q.toLowerCase(), now = asOf();
+  const recent = S.snap.announcements.filter(a => !a.merged_into && (now - tsOf(a)) / 36e5 <= windowHours());
+  const top = recent.filter(a => effectiveTier(a) === "top"), glance = recent.filter(a => effectiveTier(a) === "glance");
+  const sym = S.snap.portfolio.map(h => h.symbol).find(s => new RegExp(`\\b${s.toLowerCase()}\\b`).test(t))
+    || (S.snap.portfolio.find(h => t.includes(h.name.toLowerCase().split(" ")[0]) && h.name.length > 3) || {}).symbol;
+  const line = a => `${a.symbol}: ${a.line}`;
+  if (sym) {
+    const h = holding(sym), st = dayStats(h.series || [], S.rules.lookback), l = st[st.length - 1] || {};
+    const fs = S.snap.announcements.filter(a => a.symbol === sym && !a.merged_into && (now - tsOf(a)) / 36e5 <= 24 * 7 && effectiveTier(a) !== "routine");
+    let ans = `${sym} closed at ₹${nf1.format(h.last)}, ${sgn(l.ret)} on the day${l.vmult ? ` on ${l.vmult.toFixed(1)}× its usual volume` : ""}. `;
+    ans += fs.length ? `This week: ${fs.slice(0, 3).map(a => a.line).join(" ")}` : "No material filing from it this week.";
+    return { answer: ans, cites: [`P:${sym}`, ...fs.slice(0, 3).map(a => `F:${a.id}`)], follow_ups: [`Research ${sym}`, "What needs me today?"] };
+  }
+  if (/no news|without news|unusual|volume|spike|mov(e|ed)/.test(t)) {
+    const m = movesNoNews(recent);
+    return { answer: m.length ? `${m.length} ${m.length === 1 ? "holding" : "holdings"} crossed your rules with no filing to explain it: ${m.map(x => `${x.symbol} ${sgn(x.ret)}${x.vmult ? ` (volume ${x.vmult.toFixed(1)}×)` : ""}`).join(", ")}.` : `Nothing crossed your ±${S.rules.price}% or ${S.rules.vol}× volume rules without news.`,
+      cites: m.map(x => `P:${x.symbol}`), follow_ups: ["What needs me today?"] };
+  }
+  if (/result|quarter|earning|numbers/.test(t)) {
+    const rs = recent.filter(a => a.card && a.card.type === "results");
+    return { answer: rs.length ? rs.map(a => a.line).join(" ") : "No results filed in this window.", cites: rs.map(a => `F:${a.id}`), follow_ups: ["Anything move without news?"] };
+  }
+  if (/need|today|important|summar|brief|book|happen|what.?s up|catch me up/.test(t)) {
+    if (!top.length && !glance.length) return { answer: "Nothing material in this window. Everything filed was routine paperwork.", cites: [], follow_ups: ["Anything move without news?"] };
+    return { answer: `${top.length} ${top.length === 1 ? "filing needs" : "filings need"} you. ${top.slice(0, 3).map(line).join(" ")}${glance.length ? ` Also worth a glance: ${glance.slice(0, 3).map(a => `${a.symbol} ${a.label.toLowerCase()}`).join(", ")}.` : ""}`,
+      cites: [...top, ...glance].slice(0, 5).map(a => `F:${a.id}`), follow_ups: ["Anything move without news?", "How were this week's results?"] };
+  }
+  return { answer: "I answer from your brief, prices and research. Try one of the questions below, or name a stock.", cites: [], follow_ups: SUGGEST.slice(0, 3) };
+}
+
+async function askFinn(q) {
+  q = (q || "").trim(); if (!q) return;
+  const rm = q.match(/^research\s+([A-Za-z&]+)$/i);
+  if (rm) { location.hash = "#research-" + rm[1].toUpperCase(); return; }
+  S.chat.push({ role: "user", text: q }, { role: "finn", pending: true });
+  renderAsk();
+  const ctx = bookContext(q);
+  let out = null, local = false;
+  if (API) {
+    try {
+      const r = await fetch(`${API}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q, context: ctx, history: S.chat.filter(m => !m.pending).slice(-7, -1).map(m => ({ role: m.role, text: m.text })) }) });
+      if (r.ok) out = await r.json();
+    } catch {}
+  }
+  if (!out) { out = localAnswer(q); local = true; }
+  S.chat[S.chat.length - 1] = { role: "finn", text: out.answer, cites: out.cites || [], follow: out.follow_ups || [], local };
+  renderAsk();
+}
+
+function citeChip(c) {
+  const [k, ...rest] = c.split(":"), v = rest.join(":");
+  if (k === "F") { const a = S.snap.announcements.find(x => x.id === v); return a ? `<button class="chip cite" type="button" data-cf="${esc(v)}">${esc(a.symbol)} · ${esc(a.label)}</button>` : ""; }
+  if (k === "P") return `<button class="chip cite" type="button" data-cp="${esc(v)}">${esc(v)} · price</button>`;
+  if (k === "R") return `<a class="chip cite" href="#research-${esc(v)}">${esc(v)} · research</a>`;
+  return "";
+}
+function renderAsk() {
+  const msgs = S.chat.map((m, i) => m.role === "user"
+    ? `<div class="msg me">${esc(m.text)}</div>`
+    : m.pending ? `<div class="msg finn pending" aria-live="polite"><span></span><span></span><span></span></div>`
+    : `<div class="msg finn"><p>${esc(m.text)}</p>
+        ${m.cites && m.cites.length ? `<div class="cites">${m.cites.map(citeChip).join("")}</div>` : ""}
+        <div class="msg-foot"><button class="linkbtn" type="button" data-say="${i}">Read aloud</button><span>${m.local ? "Answered on the phone, no model" : "From your book only"}</span></div>
+        ${i === S.chat.length - 1 && m.follow && m.follow.length ? `<div class="chips follow">${m.follow.map(f => `<button class="chip" type="button" data-q="${esc(f)}">${esc(f)}</button>`).join("")}</div>` : ""}
+      </div>`).join("");
+  const mic = ("webkitSpeechRecognition" in window || "SpeechRecognition" in window);
+  $("#app").innerHTML = `<header class="bar"><span class="mark"><i aria-hidden="true"></i>Ask FINN</span><span class="asof">Answers from your book,<br>with the cards to prove it</span></header>
+    ${S.chat.length ? "" : `<section class="hero"><h1>Ask about your book.</h1><p>Type, or tap the mic and talk. Every answer links back to the filing, price or research it came from.</p></section>
+      <div class="chips suggest">${SUGGEST.map(s => `<button class="chip" type="button" data-q="${esc(s)}">${esc(s)}</button>`).join("")}</div>`}
+    <div class="thread" id="thread">${msgs}</div>
+    <form class="search askbar" id="askf"><input id="askq" placeholder="${S.listening ? "Listening…" : "e.g. What did KAYNES report?"}" autocomplete="off" aria-label="Ask FINN">
+      ${mic ? `<button class="btn ghost mic" type="button" id="mic" aria-pressed="${S.listening}" aria-label="Speak your question"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></button>` : ""}
+      <button class="btn" type="submit">Ask</button></form>
+    ${S.chat.length ? `<p class="quiet"><button class="linkbtn" type="button" id="clearchat">Start over</button></p>` : ""}`;
+  $("#askf").onsubmit = e => { e.preventDefault(); const v = $("#askq").value; askFinn(v); };
+  $$("[data-q]").forEach(b => b.onclick = () => askFinn(b.dataset.q));
+  $$("[data-cf]").forEach(b => b.onclick = () => openItem(b.dataset.cf));
+  $$("[data-cp]").forEach(b => b.onclick = () => openPrice(b.dataset.cp));
+  $$("[data-say]").forEach(b => b.onclick = () => sayText(S.chat[+b.dataset.say].text));
+  const cl = $("#clearchat"); if (cl) cl.onclick = () => { S.chat = []; renderAsk(); };
+  const mb = $("#mic"); if (mb) mb.onclick = listen;
+  const th = $("#thread"); if (th && th.lastElementChild) th.lastElementChild.scrollIntoView({ block: "nearest" });
+}
+function openPrice(sym) {
+  const h = holding(sym), st = dayStats(h.series || [], S.rules.lookback), last = st[st.length - 1] || {};
+  sheet(`<div class="head"><span class="tk">${esc(sym)}</span><span class="co">${esc(h.name)}</span><span class="time">${esc(last.d || "")}</span></div>
+    <h3 class="num">₹${h.last != null ? nf1.format(h.last) : "–"} <span class="${cls(last.ret)}">${sgn(last.ret)}</span></h3>
+    <p>Volume ${last.vmult ? last.vmult.toFixed(1) + "×" : "–"} its ${S.rules.lookback}-day average. Last 60 sessions:</p>
+    ${sparkline(st.slice(-60).map(r => r.c), 300, 60)}
+    <div class="actions"><a class="act" href="#research-${esc(sym)}" data-close>Research ${esc(sym)}</a><button class="act" type="button" data-close>Close</button></div>`);
+}
+function sayText(text) {
+  try {
+    const synth = window.speechSynthesis; synth.cancel();
+    const u = new SpeechSynthesisUtterance(text.replace(/₹/g, "rupees ").replace(/\bcr\b/g, "crore").replace(/YoY/g, "year on year").replace(/QoQ/g, "quarter on quarter").replace(/×/g, " times").replace(/−/g, "minus "));
+    u.lang = "en-IN"; synth.speak(u);
+  } catch { toast("Voice isn't available here"); }
+}
+function listen() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  if (S.listening && S.rec) { S.rec.stop(); return; }
+  const rec = new SR(); S.rec = rec;
+  rec.lang = "en-IN"; rec.interimResults = true; rec.maxAlternatives = 1;
+  rec.onresult = e => { const t = [...e.results].map(r => r[0].transcript).join(""); const i = $("#askq"); if (i) i.value = t;
+    if (e.results[e.results.length - 1].isFinal) { S.listening = false; askFinn(t); } };
+  rec.onerror = () => { S.listening = false; renderAsk(); toast("Couldn't hear that. Check the mic permission."); };
+  rec.onend = () => { if (S.listening) { S.listening = false; renderAsk(); } };
+  S.listening = true; renderAsk(); rec.start();
+}
+
 /* ---------- Research ---------- */
 async function loadResearch(sym) {
   if (S.research[sym]) return S.research[sym];
@@ -636,6 +795,7 @@ function route() {
   $$("#tabs a").forEach(a => a.setAttribute("aria-current", a.dataset.tab === view ? "page" : "false"));
   if (S.speaking && view !== "brief") { try { speechSynthesis.cancel(); } catch {} S.speaking = false; }
   if (view === "watch") renderWatch();
+  else if (view === "ask") renderAsk();
   else if (view === "research") renderResearch(sym);
   else renderBrief();
   if (!sym) window.scrollTo(0, 0);
