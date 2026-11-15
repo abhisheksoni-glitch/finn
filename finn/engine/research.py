@@ -13,7 +13,7 @@ produced, so the view never breaks.
 import re
 from datetime import datetime
 
-from .. import cache
+from .. import cache, settings
 from ..sources import screener as scr
 from ..sources.docs import pdf_pages
 from .results import fq_label, pct, MONTHS
@@ -256,7 +256,7 @@ def build(symbol, llm, n_calls=4, with_ar=True, log=print):
         analysis = heuristic_view(nums, extractive)
 
     return {"symbol": symbol, "name": page["name"], "about": page["about"],
-            "basis": page.get("basis"), "as_of": datetime.now().strftime("%Y-%m-%d"),
+            "basis": page.get("basis"), "as_of": settings.now_ist().strftime("%Y-%m-%d"),
             "numbers": nums, "analysis": analysis, "extracts": extracts,
             "sources": sources, "chunks": chunks[:220],
             "mode": "llm" if llm.available else "numbers_only"}

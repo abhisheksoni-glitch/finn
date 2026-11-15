@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,3 +44,11 @@ def load_portfolio():
 
 def load_rules():
     return json.loads((CONFIG / "rules.json").read_text())
+
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def now_ist():
+    """Wall-clock time in India, whatever the server's timezone (GitHub runners are UTC)."""
+    return datetime.now(IST).replace(tzinfo=None)

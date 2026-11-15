@@ -103,6 +103,29 @@ RESULTS_SYSTEM = (
     "income if not stated. Use only numbers printed in the document; null if absent.")
 
 
+def _quarter_names(label):
+    """'September 30, 2026' / 'Q2 FY27' / 'quarter ended 30.09.2026' -> ('Q2 FY27', 'Q1 FY27', 'Q2 FY26')."""
+    t = str(label or "")
+    m = re.search(r"Q([1-4])\s*FY\s*'?(\d{2,4})", t, re.I)
+    if m:
+        q, fy = int(m.group(1)), int(m.group(2)[-2:])
+    else:
+        mon = yr = None
+        m = re.search(r"([A-Za-z]{3})[a-z]*\.?\s+\d{1,2},?\s+(\d{4})|\d{1,2}\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})", t)
+        if m:
+            mon, yr = MONTHS.get((m.group(1) or m.group(3)).lower()), int(m.group(2) or m.group(4))
+        else:
+            m = re.search(r"\b\d{1,2}[./-](\d{1,2})[./-](\d{4})\b", t)
+            if m:
+                mon, yr = int(m.group(1)), int(m.group(2))
+        q = {6: 1, 9: 2, 12: 3, 3: 4}.get(mon)
+        if not q:
+            return (t or "Latest quarter"), "previous quarter", "a year ago"
+        fy = (yr + 1 if mon >= 4 else yr) % 100
+    pq, pfy = (q - 1, fy) if q > 1 else (4, fy - 1)
+    return f"Q{q} FY{fy:02d}", f"Q{pq} FY{pfy:02d}", f"Q{q} FY{fy - 1:02d}"
+
+
 def headline_from_pdf(pages, llm):
     if not llm.available or not pages:
         return None
@@ -113,8 +136,8 @@ def headline_from_pdf(pages, llm):
     if not j or not j.get("revenue"):
         return None
     mult = {"crore": 1, "lakh": 0.01, "million": 0.1}.get(str(j.get("unit", "crore")).lower(), 1)
-    out = {"quarter": j.get("quarter_label", "Latest quarter"), "vs_qoq": "prev qtr",
-           "vs_yoy": "year ago", "basis": j.get("basis", "?"), "unit": "₹ cr",
+    q, qq, yy = _quarter_names(j.get("quarter_label"))
+    out = {"quarter": q, "vs_qoq": qq, "vs_yoy": yy, "basis": j.get("basis", "?"), "unit": "₹ cr",
            "metrics": [], "source": "filing_pdf"}
     for k, key in (("Revenue", "revenue"), ("EBITDA", "ebitda"), ("PBT", "pbt"), ("PAT", "pat")):
         r = j.get(key) or [None, None, None]

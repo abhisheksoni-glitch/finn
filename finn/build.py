@@ -32,7 +32,7 @@ def build_snapshot(days=10, research_syms=None, log=print):
     health["prices"] = f"{len(px)}/{len(syms)}"
 
     log("2/5 announcements")
-    end = datetime.now()
+    end = settings.now_ist()
     start = end - timedelta(days=days)
     anns, h = announcements.fetch_announcements(pf["holdings"], start, end, log=log)
     health["announcements"] = h

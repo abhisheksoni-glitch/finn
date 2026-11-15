@@ -42,3 +42,17 @@ def test_guidance_check():
     g = results.guidance_check(card, research)
     assert [x["verdict"] for x in g] == ["ahead", "behind"]
     assert g[0]["said_in"] == "Q1 FY27 call"
+
+
+def test_quarter_names_from_pdf_labels():
+    assert results._quarter_names("September 30, 2026") == ("Q2 FY27", "Q1 FY27", "Q2 FY26")
+    assert results._quarter_names("Quarter ended 31.12.2026") == ("Q3 FY27", "Q2 FY27", "Q3 FY26")
+    assert results._quarter_names("Q1 FY27") == ("Q1 FY27", "Q4 FY26", "Q1 FY26")
+    assert results._quarter_names("30 June 2026")[0] == "Q1 FY27"
+
+
+def test_now_ist_is_india_time():
+    from datetime import datetime, timezone, timedelta
+    from finn import settings
+    d = settings.now_ist() - datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs(d - timedelta(hours=5, minutes=30)) < timedelta(seconds=5)
