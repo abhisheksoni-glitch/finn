@@ -20,6 +20,11 @@ Swipe right marks a card done. Swipe left mutes that kind of filing for that sto
 
 **Ask (a conversation with the book).** A fourth tab where you type or speak ("what needs me today?", "anything move without news?", "how did KAYNES do against guidance?") and get a short answer with chips that open the exact filing, price chart or research it rests on. The phone sends the model only what it is already showing (ranked filings, prices, alerts, open research), so answers can't drift into outside knowledge, and citations the model invents are dropped. One cheap model call per question. With no server or no key, the common questions are answered on the phone itself, so it never shows an empty state. Answers can be read aloud.
 
+**Small things a daily tool needs.**
+- *Whose word holds:* every promise ledger FINN has built is scored the same way (delivered 1, partly ½, missed or walked back 0, not-yet-due left out) and ranked, with each company's worst broken promise quoted. Management credibility becomes comparable across the book instead of anecdotal.
+- *New since you last looked:* the app remembers the snapshot you last opened, so a returning reader sees "3 new since you last looked" and a marker on exactly those cards. A brief you check five times a day shouldn't make you re-read it.
+- *Share:* any card becomes a tight, WhatsApp-ready note (headline numbers, guidance check, the stock's reaction, the filing link), through the phone's own share sheet.
+
 ## Key decisions and trade-offs
 
 - **Rules first, models second.** Exchange subjects are semi-structured, so ordered rules classify about 90% of filings at no cost. The model only sees the ambiguous rest, batched 20 at a time. One-liners start as the exchange's own text with boilerplate stripped; the model rewrites only the items that will actually be shown.

@@ -357,3 +357,18 @@ input[type=range] { width: 100%; accent-color: var(--saffron); height: 28px; }
 .mic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .mic[aria-pressed="true"] { border-color: var(--saffron); color: var(--saffron); animation: blink 1.2s infinite; }
 @media (prefers-reduced-motion: reduce) { .msg.pending span, .mic[aria-pressed="true"] { animation: none; } }
+
+/* whose word holds */
+.cred { display: flex; flex-direction: column; gap: 8px; }
+.credrow { display: grid; grid-template-columns: 92px 1fr 44px; gap: 4px 10px; align-items: center; text-decoration: none; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 11px 13px; }
+.credrow b { font-weight: 800; font-size: var(--s2); }
+.credbar { height: 8px; border-radius: 99px; background: var(--rule); overflow: hidden; }
+.credbar i { display: block; height: 100%; border-radius: 99px; }
+.credrow .num { text-align: right; font-weight: 700; font-size: var(--s2); }
+.credrow small { grid-column: 1 / -1; color: var(--ink2); font-size: 12.5px; line-height: 1.35; }
+/* new since you last looked */
+.fresh { display: flex; align-items: center; gap: 7px; margin-top: 6px !important; font-size: var(--s2) !important; color: var(--ink) !important; font-weight: 600; }
+.fresh .dot, .newdot { width: 8px; height: 8px; border-radius: 50%; background: var(--saffron); display: inline-block; flex: none; }
+.newdot { margin-left: 5px; vertical-align: middle; width: 7px; height: 7px; }
+.newtag { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--saffron); border: 1px solid var(--saffron); border-radius: 99px; padding: 1px 7px; }

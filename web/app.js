@@ -163,12 +163,13 @@ function topCard(a) {
   return `<div class="swipe" data-id="${esc(a.id)}">
     <div class="swipe-under" aria-hidden="true"><span class="l">Done</span><span class="r">Mute ${esc(a.label.toLowerCase())}</span></div>
     <article class="card" style="--w:${(0.45 + a.score / 180).toFixed(2)}">
-      <div class="head"><span class="tk">${esc(a.symbol)}</span><span class="co">${esc(h.name)}</span><span class="time">${when(a)}</span></div>
+      <div class="head"><span class="tk">${esc(a.symbol)}</span><span class="co">${esc(h.name)}</span>${isNew(a) ? `<span class="newtag">New</span>` : ""}<span class="time">${when(a)}</span></div>
       ${a.card && a.card.type === "results" ? `<div class="kicker" style="margin-bottom:6px"><b>Results</b></div>` : kick}
       ${body}${alsoBlock(a)}${whyPills(a)}
       <div class="actions">
         ${a.url ? `<a class="act" href="${esc(a.url)}" target="_blank" rel="noopener">Filing</a>` : ""}
         <a class="act" href="#research-${esc(a.symbol)}">${hasR ? "Research" : "Research " + esc(a.symbol)}</a>
+        <button class="act" type="button" data-share="${esc(a.id)}">Share</button>
         <button class="act" type="button" data-act="done">Done</button>
         <button class="act mute" type="button" data-act="mute">Mute</button>
       </div>
@@ -176,7 +177,7 @@ function topCard(a) {
 }
 function glanceRow(a) {
   return `<div class="row" role="button" tabindex="0" data-open="${esc(a.id)}">
-    <span class="tk">${esc(a.symbol)}</span><p>${esc(a.line)}</p>
+    <span class="tk">${esc(a.symbol)}${isNew(a) ? `<i class="newdot" title="New since you last looked"></i>` : ""}</span><p>${esc(a.line)}</p>
     <span class="lab">${esc(a.label)}</span><span class="rt">${when(a)}${a.reaction != null && Math.abs(a.reaction) >= 3 ? `, <span class="${cls(a.reaction)}">${sgn(a.reaction)}</span>` : ""}</span></div>`;
 }
 function movesNoNews(items) {
@@ -205,6 +206,7 @@ function windowChips() {
     `<button class="chip" type="button" data-win="${v}" aria-pressed="${S.win === v}">${l}</button>`).join("")}
     <label class="chip" aria-pressed="${S.win === "custom"}">Since <input type="date" id="since" value="${esc(S.custom || "")}" max="${S.snap.meta.as_of.slice(0, 10)}" aria-label="Show filings since"></label></div>`;
 }
+const isNew = a => S.seenBefore && tsOf(a) > new Date(S.seenBefore);
 function heroLine(top, glance, routine) {
   const word = n => ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"][n] || String(n);
   const t = top.length;
@@ -212,7 +214,8 @@ function heroLine(top, glance, routine) {
   const rest = [];
   if (glance.length) rest.push(`<b>${glance.length}</b> worth a glance`);
   rest.push(`<b>${routine.length}</b> routine, folded away`);
-  return `<section class="hero"><h1>${lead}</h1><p>${rest.join(", ")}.</p></section>`;
+  const fresh = [...top, ...glance].filter(isNew).length;
+  return `<section class="hero"><h1>${lead}</h1><p>${rest.join(", ")}.</p>${fresh ? `<p class="fresh"><span class="dot"></span>${fresh} new since you last looked</p>` : ""}</section>`;
 }
 function renderBrief() {
   const all = S.snap.announcements.filter(a => !a.merged_into).filter(inWindow).filter(a => !S.done.includes(a.id));
@@ -270,6 +273,22 @@ function bindBrief(all) {
   $$("[data-open]").forEach(r => { const f = () => openItem(r.dataset.open); r.onclick = f; r.onkeydown = e => { if (e.key === "Enter") f(); }; });
   $$(".mv").forEach(b => b.onclick = () => openStock(b.dataset.sym));
   $$(".swipe").forEach(bindSwipe);
+  $$("[data-share]").forEach(b => b.onclick = () => shareItem(b.dataset.share));
+}
+/* Share one card the way PMs actually pass things around: a tight WhatsApp-able note. */
+async function shareItem(id) {
+  const a = S.snap.announcements.find(x => x.id === id); if (!a) return;
+  const c = a.card || {}, lines = [`${a.symbol} (${holding(a.symbol).name}): ${a.label}`, a.line];
+  if (c.metrics) lines.push(c.metrics.filter(m => m.v != null).map(m => `${m.k} ₹${cr(m.v)} cr (YoY ${sgn(m.yoy)}, QoQ ${sgn(m.qoq)})`).join("; "));
+  (c.guidance || []).forEach(g => lines.push(`${g.verdict}: ${g.actual_label} ${g.actual_label.includes("YoY") ? sgn(g.actual) : g.actual + "%"} vs ${g.target} guided on the ${g.said_in}`));
+  if (a.reaction != null) lines.push(`Stock ${sgn(a.reaction)} on the next session.`);
+  if (a.url) lines.push(`Filing: ${a.url}`);
+  lines.push(`via FINN ${location.origin + location.pathname}`);
+  const text = lines.join("\n");
+  try {
+    if (navigator.share) { await navigator.share({ title: `${a.symbol}: ${a.label}`, text }); return; }
+    await navigator.clipboard.writeText(text); toast("Copied. Paste it into WhatsApp or Slack.");
+  } catch (e) { if (e && e.name !== "AbortError") toast("Couldn't share from this browser"); }
 }
 function finish(id, how) {
   const a = S.snap.announcements.find(x => x.id === id);
@@ -629,6 +648,7 @@ function researchHome(msg) {
     ${msg || ""}
     <h2 class="sect">Ready to read <span>built in the last run</span></h2>
     <div class="rlist">${avail.map(s => `<a class="rcard" href="#research-${esc(s)}"><b>${esc(s)}</b><span>${holding(s).name !== s ? esc(holding(s).name) + ", in your book" : "outside your book"}</span></a>`).join("")}</div>
+    <div id="cred"></div>
     <p class="quiet">${API ? "Live engine connected: any NSE symbol with filings on Screener works, built in about a minute and cached after that." : "Other symbols need the live engine: run <code>python -m finn serve</code> and set FINN_API in config.js, or prebuild with <code>python -m finn research SYMBOL</code>."}</p>`;
 }
 const VERD = { delivered: ["Delivered", "M5 12l5 5 9-10"], partly: ["Partly", "M5 12h14"], missed: ["Missed", "M7 7l10 10M17 7L7 17"], too_early: ["Too early", "M12 7v5l3 2"], walked_back: ["Walked back", "M9 7L5 11l4 4M5 11h9a5 5 0 010 10h-2"] };
@@ -783,7 +803,33 @@ async function renderResearch(sym) {
     $("#app").innerHTML = researchHome(msg); bindResearchHome();
   }
 }
+/* Whose word holds: every promise ledger FINN has built, scored the same way, so
+   management credibility becomes comparable across companies instead of anecdotal. */
+const PTS = { delivered: 1, partly: 0.5, missed: 0, walked_back: 0 };
+async function credibility() {
+  const el = $("#cred"); if (!el) return;
+  const syms = S.snap.meta.research || [];
+  const rows = (await Promise.all(syms.map(async sym => {
+    try {
+      const r = S.research[sym] || (S.research[sym] = await (await fetch(`data/research/${sym}.json`)).json());
+      const led = ((r.analysis || {}).ledger || []).filter(x => x.verdict in PTS);
+      if (led.length < 2) return null;
+      const kept = led.reduce((t, x) => t + PTS[x.verdict], 0);
+      const worst = led.find(x => x.verdict === "walked_back") || led.find(x => x.verdict === "missed");
+      return { sym, score: kept / led.length, kept, n: led.length, worst, early: ((r.analysis || {}).ledger || []).length - led.length };
+    } catch { return null; }
+  }))).filter(Boolean).sort((a, b) => b.score - a.score || b.n - a.n);
+  if (!$("#cred") || rows.length < 2) return;
+  $("#cred").innerHTML = `<h2 class="sect">Whose word holds <span>promises kept, last four calls</span></h2>
+    <div class="cred">${rows.map(x => `<a class="credrow" href="#research-${esc(x.sym)}">
+      <b>${esc(x.sym)}</b>
+      <span class="credbar" aria-hidden="true"><i style="width:${Math.round(x.score * 100)}%;background:${x.score >= .75 ? "var(--up)" : x.score >= .5 ? "var(--saffron)" : "var(--down)"}"></i></span>
+      <span class="num">${Math.round(x.score * 100)}%</span>
+      <small>${x.kept % 1 ? x.kept.toFixed(1) : x.kept} of ${x.n} kept${x.early ? `, ${x.early} too early` : ""}${x.worst ? `. ${x.worst.verdict === "walked_back" ? "Walked back" : "Missed"}: ${esc(x.worst.promise)}` : ""}</small></a>`).join("")}</div>
+    <p class="quiet">Delivered counts 1, partly ½, missed or walked back 0. Promises not yet due are left out.</p>`;
+}
 function bindResearchHome() {
+  credibility();
   const f = $("#rs"); if (!f) return;
   f.onsubmit = e => { e.preventDefault(); const v = $("#rq").value.trim().toUpperCase().replace(/\.NS$/, ""); if (v) location.hash = "research-" + v; };
 }
@@ -810,6 +856,11 @@ async function boot() {
     return;
   }
   S.rules = Object.assign(rulesDefault(), store.get("rules", {}));
+  // What's new since the last visit: remember the snapshot the investor last opened,
+  // so a returning reader sees only what arrived after that, flagged.
+  S.seenBefore = store.get("seen_asof", null);
+  if (S.seenBefore !== S.snap.meta.as_of) store.set("seen_asof", S.snap.meta.as_of);
+  if (S.seenBefore === S.snap.meta.as_of) S.seenBefore = store.get("seen_prev", null); else store.set("seen_prev", S.seenBefore);
   window.addEventListener("hashchange", route);
   route();
   if ("serviceWorker" in navigator && location.protocol.startsWith("http") && !/claude|claudeusercontent/.test(location.hostname)) {
