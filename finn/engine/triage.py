@@ -24,7 +24,7 @@ LABEL = {"results": "Results", "M&A": "M&A", "management_change": "Management",
          "postal_ballot": "Postal ballot", "unclassified": "Compliance paperwork"}
 
 BOILER = [
-    r"^.*?\bhas (informed|submitted to) the exchange (about|regarding|that)\s*",
+    r"^.*?\bhas (informed|submitted to) the exchange,?\s*(about|regarding|that)?\s*",
     r"^.*?\bhas (informed|intimated) (the )?exchanges?\s*(about|regarding|that)?\s*",
     r"^pursuant to regulation \d+[^,]*,\s*",
     r"^(please find|we (wish to )?inform)[^,.]*?(that|enclosed|attached)\s*",

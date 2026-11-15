@@ -25,7 +25,7 @@ ROUTINE = [
 # (category, subtype, subject-pattern, text-pattern) - first match wins
 RULES = [
     ("results", "results", r"financial result|integrated filing.*financial|^results?$", None),
-    ("results", "results", r"outcome of board meeting", r"(financial )?results?.{0,40}(quarter|half|year).{0,20}ended|approved.{0,40}results"),
+    ("results", "results", r"outcome of board meeting", r"(financial )?results?.{0,60}(quarter|half|year|period).{0,20}ended|approved.{0,40}results"),
     ("results", "board_meeting", r"board meeting intimation", r"result"),
     ("pledging", "pledge", r"pledge|encumbrance", None),
     ("pledging", "pledge", None, r"\bpledg|encumbrance"),
@@ -110,5 +110,7 @@ def llm_reclassify(items, llm):
             if it.get("category") in CATEGORIES:
                 a["category"], a["confidence"] = it["category"], 0.8
                 a["classified_by"] = "llm"
+                if it["category"] == "results":
+                    a["subtype"] = "results"
                 n += 1
     return n

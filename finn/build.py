@@ -55,7 +55,7 @@ def build_snapshot(days=10, research_syms=None, log=print):
         if a["tier"] == "routine":
             continue
         try:
-            if a["category"] == "results" and a["subtype"] == "results":
+            if a["category"] == "results" and a.get("subtype") not in ("board_meeting", "results_ad"):
                 page = screener.fetch_company(a["symbol"], ttl=3600)
                 card = results.headline(page, a["ts"])
                 if not card or card.get("stale"):

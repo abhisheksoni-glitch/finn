@@ -60,7 +60,7 @@ class LLM:
             body["generationConfig"]["responseMimeType"] = "application/json"
         r = requests.post(url, json=body, timeout=120,
                           headers={"x-goog-api-key": settings.GEMINI_API_KEY})
-        if r.status_code == 429:
+        if r.status_code in (429, 500, 503):
             raise _RateLimited()
         r.raise_for_status()
         j = r.json()
@@ -79,7 +79,7 @@ class LLM:
         r = requests.post(settings.OPENAI_COMPAT_BASE.rstrip("/") + "/chat/completions",
                           json=body, timeout=120,
                           headers={"Authorization": f"Bearer {settings.OPENAI_COMPAT_KEY}"})
-        if r.status_code == 429:
+        if r.status_code in (429, 500, 503):
             raise _RateLimited()
         r.raise_for_status()
         j = r.json()

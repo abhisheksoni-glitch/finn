@@ -25,7 +25,7 @@ def pdf_pages(url, max_pages=None):
         s = session(Referer=_referer(url))
         r = get(s, url, timeout=60)
         if b"%PDF" not in r.content[:1024]:
-            return [r.text[:20000]] if "html" in r.headers.get("content-type", "") else []
+            return [r.text[:20000]] if "html" in r.headers.get("content-type", "") else None
         reader = PdfReader(io.BytesIO(r.content))
         pages = []
         for i, p in enumerate(reader.pages):
@@ -35,7 +35,7 @@ def pdf_pages(url, max_pages=None):
                 pages.append(p.extract_text() or "")
             except Exception:
                 pages.append("")
-        return pages
+        return pages if any((p or "").strip() for p in pages) else None
 
     key = f"{url}|{max_pages}"
     try:
