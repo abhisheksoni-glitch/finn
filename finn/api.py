@@ -87,11 +87,7 @@ class Ask(BaseModel):
 @app.post("/api/ask")
 def post_ask(body: Ask):
     llm = get_llm()
-    sym = body.symbol.upper()
-    r = research.cached_only(sym, llm)
-    f = settings.WEB_DATA / "research" / f"{sym}.json"
-    if not r and f.exists():                             # prebuilt by the nightly job
-        r = json.loads(f.read_text())
+    r = _research_for(body.symbol.upper(), llm)
     return retrieval.ask((r or {}).get("chunks", []), body.q, llm)
 
 
@@ -99,11 +95,29 @@ class Chat(BaseModel):
     q: str
     context: dict = {}
     history: list = []
+    mentions: list = []
+
+
+def _research_for(sym, llm):
+    """Research we already have for a symbol: the live cache, or the nightly prebuilt file."""
+    r = research.cached_only(sym, llm)
+    f = settings.WEB_DATA / "research" / f"{sym}.json"
+    if not r and f.exists():
+        r = json.loads(f.read_text())
+    return r if r and not r.get("error") else None
 
 
 @app.post("/api/chat")
 def post_chat(body: Chat):
-    out = copilot.chat(body.context, body.q, body.history, get_llm())
+    llm = get_llm()
+    docs = []
+    for m in body.mentions[:3]:
+        sym = str(m).upper().strip()
+        if re.fullmatch(r"[A-Z0-9&\-]{2,15}", sym):
+            r = _research_for(sym, llm)
+            if r:
+                docs.append(r)
+    out = copilot.chat(body.context, body.q, body.history, llm, research_docs=docs)
     if out is None:
         raise HTTPException(503, "The model is unavailable; the app answers on the phone instead.")
     return out

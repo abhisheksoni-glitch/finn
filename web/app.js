@@ -458,6 +458,20 @@ S.chat = [];
 S.listening = false;
 const SUGGEST = ["What needs me today?", "Anything move without news?", "How were this week's results?", "Summarise my book in 30 seconds"];
 
+/* Which companies is the investor asking about? Holdings and researched symbols by
+   symbol or name, plus any ticker-looking word they typed in capitals ("TCS"), and the
+   companies from the previous question so "what about margins?" keeps its subject. */
+const NOT_TICKERS = new Set("I A AI OK PAT PBT EBITDA YOY QOQ CEO CFO MD EPS ROE ROCE NSE BSE FY Q1 Q2 Q3 Q4 TTM DE PE IT US UK INR CR AGM EGM QIP ESG MA FII DII GDP RBI SEBI PM VS AND OR THE".split(" "));
+function mentions(q, prev) {
+  const known = new Set([...S.snap.portfolio.map(h => h.symbol), ...(S.snap.meta.research || []), ...Object.keys(S.research)]);
+  const out = [];
+  const add = x => { if (x && !out.includes(x)) out.push(x); };
+  for (const w of q.toUpperCase().match(/[A-Z][A-Z0-9&-]{1,14}/g) || []) if (known.has(w)) add(w);
+  for (const h of S.snap.portfolio) { const n = h.name.toLowerCase().split(" ")[0]; if (n.length > 3 && q.toLowerCase().includes(n)) add(h.symbol); }
+  for (const w of q.match(/\b[A-Z][A-Z0-9&-]{1,14}\b/g) || []) if (!NOT_TICKERS.has(w)) add(w);
+  if (!out.length && prev) for (const x of prev) add(x);
+  return out.slice(0, 3);
+}
 function bookContext(q) {
   const now = asOf(), R = S.rules;
   const recent = S.snap.announcements.filter(a => !a.merged_into && (now - tsOf(a)) / 36e5 <= 24 * 7);
@@ -502,6 +516,10 @@ function localAnswer(q) {
   const sym = S.snap.portfolio.map(h => h.symbol).find(s => new RegExp(`\\b${s.toLowerCase()}\\b`).test(t))
     || (S.snap.portfolio.find(h => t.includes(h.name.toLowerCase().split(" ")[0]) && h.name.length > 3) || {}).symbol;
   const line = a => `${a.symbol}: ${a.line}`;
+  const outside = mentions(q).find(x => !S.snap.portfolio.some(h => h.symbol === x));
+  if (outside && !S.research[outside]) return { answer: `${outside} isn't in your book and I haven't researched it yet.`, cites: [], follow_ups: [], needs_research: [outside] };
+  if (outside && S.research[outside]) { const an = S.research[outside].analysis || {};
+    return { answer: `${S.research[outside].name}: ${an.verdict || "research is ready."}`, cites: [`R:${outside}`], follow_ups: [`Research ${outside}`] }; }
   if (sym) {
     const h = holding(sym), st = dayStats(h.series || [], S.rules.lookback), l = st[st.length - 1] || {};
     const fs = S.snap.announcements.filter(a => a.symbol === sym && !a.merged_into && (now - tsOf(a)) / 36e5 <= 24 * 7 && effectiveTier(a) !== "routine");
@@ -530,26 +548,60 @@ async function askFinn(q) {
   q = (q || "").trim(); if (!q) return;
   const rm = q.match(/^research\s+([A-Za-z&]+)$/i);
   if (rm) { location.hash = "#research-" + rm[1].toUpperCase(); return; }
-  S.chat.push({ role: "user", text: q }, { role: "finn", pending: true });
+  const prevUser = [...S.chat].reverse().find(m => m.role === "user");
+  const ment = mentions(q, prevUser && prevUser.mentions);
+  S.chat.push({ role: "user", text: q, mentions: ment }, { role: "finn", pending: true });
   renderAsk();
   const ctx = bookContext(q);
   let out = null, local = false;
   if (API) {
     try {
       const r = await fetch(`${API}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ q, context: ctx, history: S.chat.filter(m => !m.pending).slice(-7, -1).map(m => ({ role: m.role, text: m.text })) }) });
+        body: JSON.stringify({ q, context: ctx, mentions: ment, history: S.chat.filter(m => !m.pending).slice(-7, -1).map(m => ({ role: m.role, text: m.text })) }) });
       if (r.ok) out = await r.json();
     } catch {}
   }
   if (!out) { out = localAnswer(q); local = true; }
-  S.chat[S.chat.length - 1] = { role: "finn", text: out.answer, cites: out.cites || [], follow: out.follow_ups || [], local };
+  S.chat[S.chat.length - 1] = { role: "finn", text: out.answer, cites: out.cites || [], follow: out.follow_ups || [], local,
+    need: (out.needs_research || []).filter(x => !S.research[x]), passages: out.passages || [], q };
   renderAsk();
+}
+
+/* "Research TCS now": build it from the chat, show progress in the bubble, then answer
+   the original question again with the new research in hand. */
+async function researchFromChat(sym, i) {
+  const m = S.chat[i]; if (!m || !API) { location.hash = "#research-" + sym; return; }
+  m.building = { sym, secs: 0, step: "starting" }; renderAsk();
+  const url = `${API}/api/research/${encodeURIComponent(sym)}`, t0 = Date.now();
+  try {
+    while (Date.now() - t0 < 12 * 60e3) {
+      let r = null; try { r = await fetch(url); } catch {}
+      if (r && r.status === 200) { S.research[sym] = await r.json(); break; }
+      if (r && r.status !== 202) throw new Error((await r.json().catch(() => ({}))).detail || `No data for ${sym}`);
+      const st = r ? await r.json().catch(() => ({})) : {};
+      m.building = { sym, secs: Math.round((Date.now() - t0) / 1000), step: (st.step || "").replace(/^\s*[!-]*\s*/, "") };
+      if (location.hash === "#ask") renderAsk();
+      await new Promise(res => setTimeout(res, 4000));
+    }
+    if (!S.research[sym]) throw new Error(`${sym} is taking long; it keeps building on the server.`);
+    m.building = null; m.need = (m.need || []).filter(x => x !== sym);
+    toast(`${sym} research ready`);
+    const at = S.chat.indexOf(m);
+    if (at > 0 && S.chat[at - 1].role === "user") S.chat.splice(at - 1, 2);   // answer again in place
+    askFinn(m.q);
+  } catch (e) { m.building = null; m.err = e.message; renderAsk(); }
+}
+function openPassage(p) {
+  sheet(`<h3>${esc(p.source || "Company document")}</h3><p class="passage">${esc(p.text)}</p>
+    <p class="srcnote">From the company's own document, retrieved for this question.</p>
+    <div class="actions"><button class="act" type="button" data-close>Close</button></div>`);
 }
 
 function citeChip(c) {
   const [k, ...rest] = c.split(":"), v = rest.join(":");
   if (k === "F") { const a = S.snap.announcements.find(x => x.id === v); return a ? `<button class="chip cite" type="button" data-cf="${esc(v)}">${esc(a.symbol)} · ${esc(a.label)}</button>` : ""; }
   if (k === "P") return `<button class="chip cite" type="button" data-cp="${esc(v)}">${esc(v)} · price</button>`;
+  if (k === "R" && rest.length > 1) { const tag = rest.slice(1).join(":").replace(/^T(\d+):p(\d+)$/, "call $1, p$2").replace(/^AR:p?(\d+)$/, "annual report p$1"); return `<button class="chip cite" type="button" data-cpass="${esc(c)}">${esc(rest[0])} · ${esc(tag)}</button>`; }
   if (k === "R") return `<a class="chip cite" href="#research-${esc(v)}">${esc(v)} · research</a>`;
   return "";
 }
@@ -559,6 +611,9 @@ function renderAsk() {
     : m.pending ? `<div class="msg finn pending" aria-live="polite"><span></span><span></span><span></span></div>`
     : `<div class="msg finn"><p>${esc(m.text)}</p>
         ${m.cites && m.cites.length ? `<div class="cites">${m.cites.map(citeChip).join("")}</div>` : ""}
+        ${m.building ? `<p class="building">Building ${esc(m.building.sym)} from its transcripts and annual report: ${m.building.secs}s${m.building.step ? `<br><small>${esc(m.building.step)}</small>` : ""}</p>`
+          : (m.need || []).map(x => `<button class="btn buildbtn" type="button" data-build="${esc(x)}" data-i="${i}">Research ${esc(x)} now <small>2 to 5 min, then I'll answer</small></button>`).join("")}
+        ${m.err ? `<p class="building">${esc(m.err)}</p>` : ""}
         <div class="msg-foot"><button class="linkbtn" type="button" data-say="${i}">Read aloud</button><span>${m.local ? "Answered on the phone, no model" : "From your book only"}</span></div>
         ${i === S.chat.length - 1 && m.follow && m.follow.length ? `<div class="chips follow">${m.follow.map(f => `<button class="chip" type="button" data-q="${esc(f)}">${esc(f)}</button>`).join("")}</div>` : ""}
       </div>`).join("");
@@ -576,6 +631,8 @@ function renderAsk() {
   $$("[data-cf]").forEach(b => b.onclick = () => openItem(b.dataset.cf));
   $$("[data-cp]").forEach(b => b.onclick = () => openPrice(b.dataset.cp));
   $$("[data-say]").forEach(b => b.onclick = () => sayText(S.chat[+b.dataset.say].text));
+  $$("[data-build]").forEach(b => b.onclick = () => researchFromChat(b.dataset.build, +b.dataset.i));
+  $$("[data-cpass]").forEach(b => b.onclick = () => { const p = S.chat.flatMap(m => m.passages || []).find(x => x.id === b.dataset.cpass); if (p) openPassage(p); });
   const cl = $("#clearchat"); if (cl) cl.onclick = () => { S.chat = []; renderAsk(); };
   const mb = $("#mic"); if (mb) mb.onclick = listen;
   const th = $("#thread"); if (th && th.lastElementChild) th.lastElementChild.scrollIntoView({ block: "nearest" });
