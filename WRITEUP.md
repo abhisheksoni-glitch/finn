@@ -4,8 +4,10 @@
 
 FINN treats the investor's problem as triage, not aggregation. Three surfaces, one idea: the app should earn every second of attention it takes.
 
-**Brief (push).** It opens with a sentence, not a feed: "Three filings need you. 2 worth a glance, 4 routine, folded away." The window defaults to 24 hours and can be set to 3 days, 7 days or "since" a date. Each tier gets a different form, so importance is visible before you read a word:
+**Brief (push).** It opens with a sentence, not a feed: "Three filings need you. 2 worth a glance, 4 routine, folded away." The window defaults to "since last session" (so a Sunday or Monday morning still shows Friday's filings) and can be set to 24 hours, 3 days, 7 days or "since" a date. Each tier gets a different form, so importance is visible before you read a word:
 - *Needs you:* bespoke cards. Results show Revenue, EBITDA, PBT and PAT with QoQ and YoY, the margin change in bps, and an 8-quarter bar. Management changes show who is leaving, who is coming, their profile from the filing itself, prior roles, a web bio with its sources and confidence, and a LinkedIn link. Every card shows how the stock reacted in the first session after the filing.
+- *Results against guidance:* when a holding reports, the results card puts this quarter's revenue growth and margin next to what management guided on its last call (ahead / in line / behind), so push and pull meet on the day it matters.
+- *One event, one card:* the results PDF, the board outcome that approved them and a same-day press release are folded into a single card, with the extra filings listed under it.
 - *Worth a glance:* one line each.
 - *Routine:* compressed into a single bar, grouped by type, tap to unfold.
 - *Moved on no news:* holdings that crossed your price or volume rule with no material filing to explain them. That gap is a signal in itself.
@@ -39,7 +41,7 @@ Swipe right marks a card done. Swipe left mutes that kind of filing for that sto
 
 1. Learn the scoring weights from swipes (done vs mute, per category and per stock) instead of hand-set modifiers.
 2. Order wins sized against trailing revenue, and pledges against promoter holding, so "material" is relative to the company.
-3. A results-day mode: the moment a holding files, compare the numbers with what management guided on the previous call and push that single line.
+3. Push the results-vs-guidance line itself to Telegram the moment a holding files.
 4. Peer context in research: the same promise ledger across a sector, to see whose management is consistently credible.
 5. Real web push and a WhatsApp channel alongside Telegram.
 

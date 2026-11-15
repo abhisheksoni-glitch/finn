@@ -33,6 +33,8 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+# New research builds allowed per nightly run, for results-vs-guidance on results cards
+RESULTS_RESEARCH_MAX = int(os.getenv("FINN_RESULTS_RESEARCH_MAX", "2"))
 
 
 def load_portfolio():

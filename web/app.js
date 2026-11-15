@@ -10,7 +10,7 @@ const store = {
 };
 
 const S = {
-  snap: null, research: {}, win: store.get("win", 24), custom: null,
+  snap: null, research: {}, win: store.get("win2", "session"), custom: null,
   mutes: store.get("mutes", []), done: store.get("done", []), openRoutine: false,
   rules: null, ask: {}, speaking: false
 };
@@ -56,10 +56,25 @@ function effectiveTier(a) {
   if (S.mutes.includes(muteKey(a))) return "routine";
   return a.tier;
 }
+/* "Since last session": from the close of the session before the latest one, so a
+   Monday morning or a Sunday shows Friday's filings and the weekend, not an empty day. */
+function sessionStart() {
+  const ds = [...new Set(S.snap.portfolio.flatMap(h => (h.series || []).map(r => r[0])))].sort();
+  const now = asOf(), today = now.toISOString().slice(0, 10);
+  const past = ds.filter(d => d < today || (d === today && now.getHours() >= 16));
+  const prev = past.length >= 2 ? past[past.length - 2] : null;
+  return prev ? new Date(prev + "T15:30:00+05:30") : new Date(now - 24 * 36e5);
+}
+function windowHours() {
+  const now = asOf();
+  if (S.win === "custom") return S.custom ? (now - new Date(S.custom + "T00:00:00+05:30")) / 36e5 : 24;
+  if (S.win === "session") return (now - sessionStart()) / 36e5;
+  return S.win;
+}
 function inWindow(a) {
   const now = asOf();
   if (S.win === "custom" && S.custom) return tsOf(a) >= new Date(S.custom + "T00:00:00+05:30") && tsOf(a) <= now;
-  return (now - tsOf(a)) / 36e5 <= (S.win === "custom" ? 24 : S.win);
+  return (now - tsOf(a)) / 36e5 <= windowHours();
 }
 
 /* ---------- small svg charts ---------- */
@@ -84,8 +99,8 @@ function miniBars(labels, vals) {
 /* ---------- Brief ---------- */
 function cardResults(a) {
   const c = a.card || {};
-  if (!c.metrics || c.stale) {
-    return `<p class="lede">${esc(a.line)}</p><p class="note">Headline numbers will appear once the results table updates. Open the filing for now.</p>`;
+  if (!c.metrics || c.stale || c.pending) {
+    return `<p class="lede">${esc(a.line)}</p><p class="note">Numbers pending. ${esc(c.reason || "The reported tables haven't caught up with this filing yet.")} The next nightly build tries again; the filing is linked below.</p>`;
   }
   const m = c.metrics.map(x => x.v == null
     ? `<div class="m"><span class="k">${esc(x.k)}</span><span class="v flat">n/a</span><span class="d"><span>${esc(x.note || "")}</span></span></div>`
@@ -96,7 +111,22 @@ function cardResults(a) {
   if (c.is_financial) bits.push("Lender: EBITDA swapped for pre-provision profit.");
   return `<div class="kicker"><b>${esc(c.quarter)}</b> vs ${esc(c.vs_qoq)} and ${esc(c.vs_yoy)}, ${esc(c.basis)}, ₹ crore</div>
     <div class="grid4">${m}</div>${bits.length ? `<p class="note">${bits.join(" ")}</p>` : ""}
-    ${c.series && c.series.Revenue && c.series.Revenue.length > 2 ? miniBars(c.series.cols, c.series.Revenue) : ""}`;
+    ${c.series && c.series.Revenue && c.series.Revenue.length > 2 ? miniBars(c.series.cols, c.series.Revenue) : ""}
+    ${guidanceBlock(c.guidance)}`;
+}
+function guidanceBlock(g) {
+  if (!g || !g.length) return "";
+  const tone = { "ahead": "up", "in line": "flat", "behind": "down" };
+  return `<div class="guide"><h4>Against what they guided</h4>${g.map(x => `<div class="gline">
+    <span class="gv ${tone[x.verdict] || "flat"}">${esc(x.verdict)}</span>
+    <span>${esc(x.actual_label)} <b class="num">${x.actual_label.includes("YoY") ? sgn(x.actual) : esc(x.actual) + "%"}</b>
+    vs <b>${esc(x.target)}</b> guided on the ${esc(x.said_in)}${x.horizon ? ` (${esc(x.horizon)})` : ""}</span></div>`).join("")}
+    <small>One quarter against the guided range, not a final verdict.</small></div>`;
+}
+function alsoBlock(a) {
+  if (!a.also || !a.also.length) return "";
+  return `<div class="also"><h4>Also filed with this</h4>${a.also.map(x =>
+    `<a ${x.url ? `href="${esc(x.url)}" target="_blank" rel="noopener"` : ""}><b>${esc(x.label || "")}</b> ${esc(x.line || "")}</a>`).join("")}</div>`;
 }
 function cardPeople(a) {
   const ch = (a.card && a.card.changes) || [];
@@ -135,7 +165,7 @@ function topCard(a) {
     <article class="card" style="--w:${(0.45 + a.score / 180).toFixed(2)}">
       <div class="head"><span class="tk">${esc(a.symbol)}</span><span class="co">${esc(h.name)}</span><span class="time">${when(a)}</span></div>
       ${a.card && a.card.type === "results" ? `<div class="kicker" style="margin-bottom:6px"><b>Results</b></div>` : kick}
-      ${body}${whyPills(a)}
+      ${body}${alsoBlock(a)}${whyPills(a)}
       <div class="actions">
         ${a.url ? `<a class="act" href="${esc(a.url)}" target="_blank" rel="noopener">Filing</a>` : ""}
         <a class="act" href="#research-${esc(a.symbol)}">${hasR ? "Research" : "Research " + esc(a.symbol)}</a>
@@ -151,7 +181,7 @@ function glanceRow(a) {
 }
 function movesNoNews(items) {
   const R = S.rules, now = asOf();
-  const hrs = S.win === "custom" ? (S.custom ? (now - new Date(S.custom + "T00:00:00+05:30")) / 36e5 : 24) : S.win;
+  const hrs = windowHours();
   const withNews = new Set(items.filter(a => effectiveTier(a) !== "routine").map(a => a.symbol));
   const out = [];
   for (const h of S.snap.portfolio) {
@@ -170,7 +200,7 @@ function moveTile(x) {
     <span class="big ${cls(x.ret)}">${sgn(x.ret)}</span><small>${x.vmult ? "vol " + x.vmult.toFixed(1) + "× avg" : ""}</small>${sparkline(ser)}</button>`;
 }
 function windowChips() {
-  const opts = [[24, "Last 24 hours"], [72, "3 days"], [168, "7 days"]];
+  const opts = [["session", "Since last session"], [24, "24 hours"], [72, "3 days"], [168, "7 days"]];
   return `<div class="chips" role="group" aria-label="Time window">${opts.map(([v, l]) =>
     `<button class="chip" type="button" data-win="${v}" aria-pressed="${S.win === v}">${l}</button>`).join("")}
     <label class="chip" aria-pressed="${S.win === "custom"}">Since <input type="date" id="since" value="${esc(S.custom || "")}" max="${S.snap.meta.as_of.slice(0, 10)}" aria-label="Show filings since"></label></div>`;
@@ -185,11 +215,11 @@ function heroLine(top, glance, routine) {
   return `<section class="hero"><h1>${lead}</h1><p>${rest.join(", ")}.</p></section>`;
 }
 function renderBrief() {
-  const all = S.snap.announcements.filter(inWindow).filter(a => !S.done.includes(a.id));
+  const all = S.snap.announcements.filter(a => !a.merged_into).filter(inWindow).filter(a => !S.done.includes(a.id));
   const top = all.filter(a => effectiveTier(a) === "top");
   const glance = all.filter(a => effectiveTier(a) === "glance");
   const routine = all.filter(a => effectiveTier(a) === "routine");
-  const doneN = S.snap.announcements.filter(inWindow).filter(a => S.done.includes(a.id)).length;
+  const doneN = S.snap.announcements.filter(a => !a.merged_into).filter(inWindow).filter(a => S.done.includes(a.id)).length;
   const moves = movesNoNews(all);
   const m = S.snap.meta;
   let h = topBar();
@@ -204,7 +234,7 @@ function renderBrief() {
     const keys = Object.keys(groups).sort((x, y) => groups[y].length - groups[x].length);
     h += `<h2 class="sect">Routine</h2><button class="sediment" type="button" id="sed" aria-expanded="${S.openRoutine}">
       <div class="strata" aria-hidden="true">${keys.map(k => `<span style="flex:${groups[k].length}"></span>`).join("")}</div>
-      <div class="sed-text"><span><b>${routine.length}</b> filings: ${keys.slice(0, 3).map(k => esc(k.toLowerCase())).join(", ")}${keys.length > 3 ? " and more" : ""}</span><span>${S.openRoutine ? "Fold" : "Unfold"}</span></div></button>`;
+      <div class="sed-text"><span><b>${routine.length}</b> ${routine.length === 1 ? "filing" : "filings"}: ${keys.slice(0, 3).map(k => esc(k.toLowerCase())).join(", ")}${keys.length > 3 ? " and more" : ""}</span><span>${S.openRoutine ? "Fold" : "Unfold"}</span></div></button>`;
     if (S.openRoutine) h += `<div class="routine-list">${keys.map(k => `<div class="rgroup"><h4>${esc(k)} <span>${groups[k].length}</span></h4>${groups[k].map(a =>
       `<a href="${esc(a.url || "#")}" ${a.url ? 'target="_blank" rel="noopener"' : ""}><b>${esc(a.symbol)}</b>${esc(a.line)}</a>`).join("")}</div>`).join("")}</div>`;
   }
@@ -229,7 +259,7 @@ function topBar() {
     <span class="asof">As of ${t.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}<br>${t.getHours() >= 15 ? "after close" : t.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span></header>`;
 }
 function bindBrief(all) {
-  $$("[data-win]").forEach(b => b.onclick = () => { S.win = +b.dataset.win; store.set("win", S.win); renderBrief(); });
+  $$("[data-win]").forEach(b => b.onclick = () => { S.win = b.dataset.win === "session" ? "session" : +b.dataset.win; store.set("win2", S.win); renderBrief(); });
   const since = $("#since");
   if (since) since.onchange = () => { S.custom = since.value; S.win = "custom"; renderBrief(); };
   const sed = $("#sed");
@@ -460,7 +490,7 @@ function renderTear(r) {
   <div class="facts">
     <div><span>Market cap</span><b class="num">₹${sn.market_cap ? nf0.format(sn.market_cap) : "–"}<small> cr</small></b></div>
     <div><span>P/E</span><b class="num">${sn.pe ?? "–"}</b></div><div><span>ROCE</span><b class="num">${sn.roce ?? "–"}%</b></div>
-    <div><span>Revenue, ${sn.ttm ? "TTM" : "latest FY"}</span><b class="num">₹${cr(sn.rev_ttm)}</b></div><div><span>Op. margin</span><b class="num">${sn.opm_ttm ?? "–"}%</b></div><div><span>Debt / equity</span><b class="num">${sn.de ?? "–"}</b></div></div>
+    <div><span>Revenue, ${sn.ttm ? "TTM" : "latest FY"}</span><b class="num">₹${cr(sn.rev_ttm)}<small> cr</small></b></div><div><span>Op. margin</span><b class="num">${sn.opm_ttm ?? "–"}%</b></div><div><span>Debt / equity</span><b class="num">${sn.de ?? "–"}</b></div></div>
   ${a.verdict ? (r.mode === "numbers_only" ? `<p class="sub" style="margin-top:12px">${esc(a.verdict)}</p>` : `<p class="verdict">${esc(a.verdict)}</p>`) : ""}
   <nav class="toc" aria-label="Sections">${[led.length && ["ledger", "Promises"], (a.narrative || []).length && ["narrative", "Story vs numbers"], ["numbers", "Trajectory"], ["cash", "Cash"], ["balance", "Balance sheet"], ["bullbear", "Bull and bear"], ["ask", "Ask"]].filter(Boolean).map(([id, l]) => `<a href="#research-${esc(r.symbol)}" data-jump="${id}">${l}</a>`).join("")}</nav>`;
   if (led.length) {

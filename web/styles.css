@@ -28,13 +28,13 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f);
-  font-size: var(--s3); line-height: 1.45; font-feature-settings: "tnum" 1, "lnum" 1;
+  font-size: var(--s3); line-height: 1.45; font-feature-settings: "lnum" 1;
   -webkit-font-smoothing: antialiased;
 }
 a { color: inherit; }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
-.num { font-variant-numeric: tabular-nums; }
+.num { font-variant-numeric: lining-nums; }
 .up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--muted); }
 
 .shell { display: flex; justify-content: center; gap: 56px; padding: 0 16px; }
@@ -324,3 +324,13 @@ input[type=range] { width: 100%; accent-color: var(--saffron); height: 28px; }
 .gnow dt { font-size: var(--s1); color: var(--muted); }
 .gnow dd { margin: 1px 0 0; font-size: var(--s2); }
 .gnow dd b { font-size: var(--s3); margin-right: 4px; }
+
+/* results vs guidance, and filings folded into one card */
+.guide, .also { margin: 12px 0 4px; padding-top: 10px; border-top: 1px solid var(--rule, rgba(127,140,160,.22)); }
+.guide h4, .also h4 { margin: 0 0 6px; font-size: var(--s1); font-weight: 700; color: var(--ink2); }
+.gline { display: flex; gap: 10px; align-items: baseline; font-size: var(--s2); line-height: 1.35; margin: 0 0 6px; }
+.gv { flex: none; min-width: 58px; font-size: 12px; font-weight: 700; text-transform: capitalize; }
+.guide small { display: block; color: var(--muted); font-size: 12px; }
+.also a { display: block; font-size: var(--s2); color: var(--ink2); text-decoration: none; margin: 0 0 4px; line-height: 1.35; }
+.also a[href]:hover { color: var(--ink); }
+.also a b { color: var(--ink); font-weight: 700; margin-right: 4px; }

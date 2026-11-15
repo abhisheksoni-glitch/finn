@@ -106,7 +106,9 @@ RESULTS_SYSTEM = (
 def headline_from_pdf(pages, llm):
     if not llm.available or not pages:
         return None
-    text = "\n".join(pages[:8])[:24000]
+    text = "\n".join(pages[:12])[:30000]
+    if len(text.strip()) < 400:      # scanned PDF with no text layer: nothing to read
+        return None
     j = llm.ask(text, tier="fast", system=RESULTS_SYSTEM)
     if not j or not j.get("revenue"):
         return None
@@ -138,3 +140,70 @@ def summary_line(card):
     if mg:
         bits.append(f"EBITDA margin {mg['now']}% ({mg['bps']:+d} bps)")
     return f"{card.get('quarter', 'Results')}: " + ", ".join(bits) if bits else None
+
+
+# ---------- results vs guidance ----------
+NUM = re.compile(r"(\d+(?:\.\d+)?)")
+
+
+def _target_range(target):
+    """'15-20%' -> (15, 20); '> 18%' -> (18, None); '~12%' -> (11, 13). Only % targets."""
+    t = (target or "").replace("–", "-").replace("—", "-").lower()
+    if "%" not in t or "×" in t or " x " in t:
+        return None
+    nums = [float(x) for x in NUM.findall(t)]
+    if not nums:
+        return None
+    if len(nums) >= 2 and "-" in t:
+        lo, hi = sorted(nums[:2])
+        return lo, hi
+    n = nums[0]
+    if re.search(r">|at least|over|above|more than|\+$", t):
+        return n, None
+    if re.search(r"<|below|under|at most|up to", t):
+        return None, n
+    return n - 1, n + 1
+
+
+def _said_in(src, sources):
+    tag = (src or [""])[0].split(":")[0]
+    title = (sources.get(tag) or {}).get("title", "")
+    m = re.match(r"(Q\d FY\d\d)", title)
+    return f"{m.group(1)} call" if m else ("annual report" if tag == "AR" else "earnings call")
+
+
+def guidance_check(card, research):
+    """Put this quarter's reported numbers next to what management last guided.
+
+    Only percentage targets on revenue growth or margin are compared; everything is
+    labelled as one quarter against the guided range, never as a final verdict."""
+    if not card or not card.get("metrics") or not research:
+        return []
+    an = research.get("analysis") or {}
+    items = an.get("guidance_now") or []
+    m = {x["k"]: x for x in card["metrics"]}
+    rev = m.get("Revenue") or {}
+    margin = (card.get("margin") or {}).get("now")
+    if margin is None and (m.get("EBITDA") or {}).get("v") is not None and rev.get("v"):
+        margin = round(m["EBITDA"]["v"] / rev["v"] * 100, 1)
+    out = []
+    for g in items:
+        metric = (g.get("metric") or "").lower()
+        if re.search(r"margin|ebitda|opm", metric):
+            actual, label = margin, "EBITDA margin"
+        elif re.search(r"revenue|sales|growth|top.?line", metric):
+            actual, label = rev.get("yoy"), "Revenue YoY"
+        else:
+            continue
+        rng = _target_range(g.get("target"))
+        if actual is None or not rng:
+            continue
+        lo, hi = rng
+        verdict = "behind" if lo is not None and actual < lo else \
+                  "ahead" if hi is not None and actual > hi else "in line"
+        out.append({"metric": g.get("metric"), "target": g.get("target"), "horizon": g.get("horizon"),
+                    "said_in": _said_in(g.get("src"), research.get("sources") or {}),
+                    "actual_label": label, "actual": actual, "verdict": verdict, "src": g.get("src")})
+        if len(out) == 2:
+            break
+    return out
