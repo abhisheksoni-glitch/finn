@@ -288,6 +288,13 @@ def heuristic_view(n, extractive):
             "guidance_raw": extractive, "watch": []}
 
 
+def _key(symbol, llm):
+    return f"{symbol.upper()}|{llm.models['smart']}|{llm.available}"
+
+
+def cached_only(symbol, llm, ttl=24 * 3600):
+    return cache.get("research", _key(symbol, llm), ttl)
+
+
 def build_cached(symbol, llm, ttl=24 * 3600, **kw):
-    key = f"{symbol.upper()}|{llm.models['smart']}|{llm.available}"
-    return cache.cached("research", key, lambda: build(symbol, llm, **kw), ttl=ttl)
+    return cache.cached("research", _key(symbol, llm), lambda: build(symbol, llm, **kw), ttl=ttl)

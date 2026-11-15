@@ -438,11 +438,30 @@ async function loadResearch(sym) {
     try { const r = await fetch(`data/research/${sym}.json`); if (r.ok) return (S.research[sym] = await r.json()); } catch {}
   }
   if (API) {
-    const r = await fetch(`${API}/api/research/${encodeURIComponent(sym)}`);
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `No data for ${sym}`);
-    return (S.research[sym] = await r.json());
+    // The server builds in the background (202) and we poll, so a slow first build
+    // never hangs on one long request. A free server may also need ~1 min to wake up.
+    const url = `${API}/api/research/${encodeURIComponent(sym)}`, t0 = Date.now();
+    let fails = 0;
+    while (Date.now() - t0 < 12 * 60e3) {
+      if (location.hash.toUpperCase() !== ("#research-" + sym).toUpperCase()) throw new Error("cancelled");
+      let r;
+      try { r = await fetch(url); fails = 0; }
+      catch { if (++fails > 6) throw new Error("Couldn't reach the research server. It may be waking up; try again in a minute."); r = null; }
+      if (r && r.status === 200) return (S.research[sym] = await r.json());
+      if (r && r.status !== 202) throw new Error((await r.json().catch(() => ({}))).detail || `No data for ${sym}`);
+      const st = r ? await r.json().catch(() => ({})) : {};
+      onProgress(sym, st, Math.round((Date.now() - t0) / 1000));
+      await new Promise(res => setTimeout(res, 4000));
+    }
+    throw new Error(`${sym} is taking unusually long. Try again in a few minutes; the build keeps going on the server.`);
   }
   throw new Error("offline");
+}
+function onProgress(sym, st, secs) {
+  const el = $("#rprog");
+  if (!el) return;
+  const step = (st.step || "").replace(/^\s*[!-]*\s*/, "");
+  el.innerHTML = `Building ${esc(sym)} from its own transcripts and annual report: ${secs}s${step ? `<br><small>${esc(step)}</small>` : ""}<br><small>First build takes 2 to 5 minutes, then it's cached.</small>`;
 }
 function researchHome(msg) {
   const avail = S.snap.meta.research || [];
@@ -594,10 +613,11 @@ async function ask(r, q) {
 }
 async function renderResearch(sym) {
   if (!sym) { $("#app").innerHTML = researchHome(); bindResearchHome(); return; }
-  $("#app").innerHTML = researchHome(`<p class="quiet">Opening ${esc(sym)}</p>`);
+  $("#app").innerHTML = researchHome(`<p class="quiet" id="rprog">Opening ${esc(sym)}</p>`);
   bindResearchHome();
   try { renderTear(await loadResearch(sym)); window.scrollTo(0, 0); }
   catch (e) {
+    if (e.message === "cancelled") return;
     const msg = e.message === "offline"
       ? `<p class="banner">${esc(sym)} hasn't been built yet. Run <code>python -m finn research ${esc(sym)}</code>, or start <code>python -m finn serve</code> to research any symbol on demand.</p>`
       : `<p class="banner">${esc(e.message)}</p>`;
